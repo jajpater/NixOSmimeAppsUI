@@ -137,3 +137,32 @@ sudo nixos-rebuild switch --flake .#laptop
 ```
 
 Zonder rebuild verandert je systeemconfig niet blijvend.
+
+## Kleine web UI
+
+Er is ook een kleine web UI.
+
+Start die zo:
+
+```bash
+nix run -- --web
+```
+
+Open daarna:
+
+```text
+http://127.0.0.1:8787
+```
+
+Die web UI houdt het bewust simpel:
+
+- lijst met MIME types
+- zoekveld voor MIME types
+- lijst met handlers
+- zoekveld voor handlers
+- knoppen voor default / added / removed / override
+- live preview van de gegenereerde Nix
+- save-knop
+
+De web UI gebruikt dezelfde logica als de TUI. Het resultaat is dus hetzelfde
+type `generated-mimeapps.nix`.

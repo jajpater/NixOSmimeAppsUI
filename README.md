@@ -130,6 +130,18 @@ Or with Nix:
 nix run
 ```
 
+Web UI:
+
+```bash
+nix run -- --web
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8787
+```
+
 ## Keybindings
 
 - `j` / `k`: move in the focused list
@@ -155,5 +167,20 @@ The generated Nix file contains three sections:
 
 It may also contain `desktopMetadata`, which is support data for generated
 desktop-entry overrides.
+
+## Web UI
+
+The web UI is intentionally small.
+
+It gives you:
+
+- a MIME type list with search
+- a handler list with search
+- buttons for default / added / removed / override actions
+- a live preview of the generated Nix file
+- a save button
+
+It uses the same backend logic as the TUI, so both interfaces write the same
+kind of output.
 
 The file is intended to be imported by a hand-written Home Manager module later.
