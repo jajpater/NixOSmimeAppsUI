@@ -12,24 +12,17 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
+          pythonEnv = pkgs.python3.withPackages (ps: [
+            ps.textual
+          ]);
         in
         {
-          default = pkgs.python3Packages.buildPythonApplication {
-            pname = "nixos-mimeapps-ui";
-            version = "0.1.0";
-            pyproject = true;
-            src = ./.;
-            dependencies = with pkgs.python3Packages; [
-              textual
-            ];
-            nativeBuildInputs = with pkgs.python3Packages; [
-              setuptools
-            ];
-            nativeCheckInputs = with pkgs.python3Packages; [
-              pytest
-            ];
-            checkPhase = ''
-              pytest
+          default = pkgs.writeShellApplication {
+            name = "nixos-mimeapps-ui";
+            runtimeInputs = [ pythonEnv ];
+            text = ''
+              export PYTHONPATH="${./src}:''${PYTHONPATH:-}"
+              exec python -m nixosmimeappsui.cli "$@"
             '';
           };
         });
