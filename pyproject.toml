@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nixos-mimeapps-ui"
+version = "0.1.0"
+description = "Textual TUI for declarative MIME app management in a NixOS/Home Manager repo"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "textual>=0.63,<0.90",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+nixos-mimeapps-ui = "nixosmimeappsui.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,2 @@
+"""NixOSmimeAppsUI package."""
+
