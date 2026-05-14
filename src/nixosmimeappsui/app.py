@@ -30,6 +30,45 @@ class ConfirmWriteScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class HelpScreen(ModalScreen[None]):
+    HELP_TEXT = """NixOSmimeAppsUI Help
+
+This tool writes a delta, not your whole MIME config.
+
+Two layers:
+- mimeDefaults / mimeAdded / mimeRemoved
+  These are normal XDG associations.
+- desktopOverrides
+  This changes what an app claims to support in its .desktop file.
+
+Most of the time you only need the first layer.
+
+Keys:
+- j / k: move
+- h / l: switch pane
+- /: search in the focused pane
+- a: add selected app as explicit handler
+- r: remove selected app from explicit handlers/defaults
+- d: set selected app as default
+- x: block or unblock selected handler
+- o: strip or restore selected MIME claim on the app
+- s: refresh preview
+- w: write generated Nix file
+- q or Esc: close this help
+"""
+
+    def compose(self) -> ComposeResult:
+      yield Vertical(
+        Static(self.HELP_TEXT),
+        Static("Press q or Esc to close help."),
+        id="help-dialog",
+      )
+
+    def on_key(self, event: events.Key) -> None:
+      if event.key in {"q", "escape", "question_mark"}:
+        self.dismiss()
+
+
 class MimeApp(ListItem):
     def __init__(self, mime_type: str) -> None:
       super().__init__(Label(mime_type))
@@ -81,15 +120,27 @@ class NixOSMimeAppsUI(App[None]):
       padding: 1 2;
       align: center middle;
     }
+
+    #help-dialog {
+      width: 90;
+      height: 22;
+      border: round $accent;
+      background: $surface;
+      padding: 1 2;
+      align: center middle;
+    }
     """
 
     BINDINGS = [
       Binding("q", "quit", "Quit"),
+      Binding("question_mark", "show_help", "Help"),
       Binding("j", "cursor_down", "Down", show=False),
       Binding("k", "cursor_up", "Up", show=False),
       Binding("h", "focus_left", "Left", show=False),
       Binding("l", "focus_right", "Right", show=False),
       Binding("/", "focus_search", "Search"),
+      Binding("a", "toggle_added", "Toggle Added"),
+      Binding("r", "remove_handler", "Remove Handler"),
       Binding("d", "set_default", "Set Default"),
       Binding("x", "toggle_removed", "Toggle Block"),
       Binding("o", "toggle_override", "Toggle Override"),
@@ -98,6 +149,7 @@ class NixOSMimeAppsUI(App[None]):
     ]
 
     filtered_mime_types: reactive[list[str]] = reactive(list)
+    filtered_handler_ids: reactive[list[str] | None] = reactive(None)
 
     def __init__(self, repo_root: Path | None = None, output_relative: Path | None = None):
       super().__init__()
@@ -106,11 +158,12 @@ class NixOSMimeAppsUI(App[None]):
         output_relative=output_relative or DEFAULT_OUTPUT_RELATIVE,
       )
       self.filtered_mime_types = self.repository.mime_types
+      self.search_target = "mime"
       self.preview_text = ""
 
     def compose(self) -> ComposeResult:
       yield Header()
-      yield Input(placeholder="Search MIME types", id="mime-search")
+      yield Input(placeholder="Search current pane", id="pane-search")
       with Horizontal(id="body"):
         with Vertical(id="left-pane"):
           yield Label("MIME Types")
@@ -127,7 +180,7 @@ class NixOSMimeAppsUI(App[None]):
     def on_mount(self) -> None:
       self._reload_mime_list()
       self._refresh_preview()
-      self.query_one("#mime-search", Input).blur()
+      self.query_one("#pane-search", Input).blur()
       self.query_one("#mime-list", ListView).focus()
 
     def _set_status(self, message: str) -> None:
@@ -159,6 +212,10 @@ class NixOSMimeAppsUI(App[None]):
     def _handler_label(self, mime_type: str, desktop_id: str) -> str:
       entry = self.repository.entries[desktop_id]
       flags: list[str] = []
+      if self.repository.supports_mime(mime_type, desktop_id):
+        flags.append("supports")
+      if self.repository.is_added(mime_type, desktop_id):
+        flags.append("added")
       if self.repository.current_default_for(mime_type) == desktop_id:
         flags.append("default")
       if self.repository.is_removed(mime_type, desktop_id):
@@ -166,15 +223,21 @@ class NixOSMimeAppsUI(App[None]):
       override = self.repository.override_for(desktop_id)
       if override is not None and mime_type not in override.allowed_mime_types:
         flags.append("stripped")
+      if not self.repository.supports_mime(mime_type, desktop_id) and not self.repository.is_added(mime_type, desktop_id):
+        flags.append("not-advertised")
       suffix = f" [{' | '.join(flags)}]" if flags else ""
       return f"{entry.name} ({desktop_id}){suffix}"
 
     def _reload_handler_list(self, mime_type: str) -> None:
       handler_list = self.query_one("#handler-list", ListView)
       handler_list.clear()
-      for entry in self.repository.handlers_for(mime_type):
+      entries = self.repository.handlers_for(mime_type)
+      if self.filtered_handler_ids is not None:
+        allowed_ids = set(self.filtered_handler_ids)
+        entries = [entry for entry in entries if entry.desktop_id in allowed_ids]
+      for entry in entries:
         handler_list.append(HandlerItem(entry.desktop_id, self._handler_label(mime_type, entry.desktop_id)))
-      if self.repository.handlers_for(mime_type):
+      if entries:
         handler_list.index = 0
 
     def _refresh_preview(self) -> None:
@@ -184,14 +247,29 @@ class NixOSMimeAppsUI(App[None]):
 
     def on_input_changed(self, event: Input.Changed) -> None:
       query = event.value.strip().lower()
-      if not query:
-        self.filtered_mime_types = self.repository.mime_types
+      if self.search_target == "mime":
+        self.filtered_handler_ids = None
+        if not query:
+          self.filtered_mime_types = self.repository.mime_types
+        else:
+          self.filtered_mime_types = [
+            mime_type for mime_type in self.repository.mime_types
+            if query in mime_type.lower()
+          ]
+        self._reload_mime_list()
       else:
-        self.filtered_mime_types = [
-          mime_type for mime_type in self.repository.mime_types
-          if query in mime_type.lower()
-        ]
-      self._reload_mime_list()
+        mime_type = self._current_mime_type()
+        if mime_type is None:
+          return
+        entries = self.repository.handlers_for(mime_type)
+        if not query:
+          self.filtered_handler_ids = None
+        else:
+          self.filtered_handler_ids = [
+            entry.desktop_id for entry in entries
+            if query in entry.desktop_id.lower() or query in entry.name.lower()
+          ]
+        self._reload_handler_list(mime_type)
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
       if event.list_view.id == "mime-list":
@@ -210,14 +288,23 @@ class NixOSMimeAppsUI(App[None]):
     def action_focus_left(self) -> None:
       if self.focused and self.focused.id == "handler-list":
         self.query_one("#mime-list", ListView).focus()
+        self.search_target = "mime"
       else:
         self.query_one("#mime-list", ListView).focus()
+        self.search_target = "mime"
 
     def action_focus_right(self) -> None:
       self.query_one("#handler-list", ListView).focus()
+      self.search_target = "handler"
 
     def action_focus_search(self) -> None:
-      self.query_one("#mime-search", Input).focus()
+      if self.focused and self.focused.id == "handler-list":
+        self.search_target = "handler"
+        self.query_one("#pane-search", Input).placeholder = "Search handlers"
+      else:
+        self.search_target = "mime"
+        self.query_one("#pane-search", Input).placeholder = "Search MIME types"
+      self.query_one("#pane-search", Input).focus()
 
     def action_set_default(self) -> None:
       mime_type = self._current_mime_type()
@@ -228,6 +315,28 @@ class NixOSMimeAppsUI(App[None]):
       self.repository.set_default(mime_type, desktop_id)
       self._reload_handler_list(mime_type)
       self._refresh_preview()
+
+    def action_toggle_added(self) -> None:
+      mime_type = self._current_mime_type()
+      desktop_id = self._current_handler_id()
+      if mime_type is None or desktop_id is None:
+        self._set_status("Select a MIME type and handler first.")
+        return
+      enabled = self.repository.toggle_added(mime_type, desktop_id)
+      self._reload_handler_list(mime_type)
+      self._refresh_preview()
+      self._set_status(f"{'Added' if enabled else 'Removed'} explicit handler {desktop_id} for {mime_type}")
+
+    def action_remove_handler(self) -> None:
+      mime_type = self._current_mime_type()
+      desktop_id = self._current_handler_id()
+      if mime_type is None or desktop_id is None:
+        self._set_status("Select a MIME type and handler first.")
+        return
+      self.repository.remove_handler(mime_type, desktop_id)
+      self._reload_handler_list(mime_type)
+      self._refresh_preview()
+      self._set_status(f"Removed explicit handler {desktop_id} from {mime_type}")
 
     def action_toggle_removed(self) -> None:
       mime_type = self._current_mime_type()
@@ -266,3 +375,6 @@ class NixOSMimeAppsUI(App[None]):
         self._set_status(f"Wrote {self.repository.output_path}")
 
       self.push_screen(ConfirmWriteScreen(), handle_confirm)
+
+    def action_show_help(self) -> None:
+      self.push_screen(HelpScreen())

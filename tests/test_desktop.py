@@ -20,4 +20,6 @@ def test_parse_desktop_entry_reads_mime_types(tmp_path: Path) -> None:
 
     assert entry is not None
     assert entry.desktop_id == "viewer.desktop"
+    assert entry.generic_name == ""
+    assert entry.comment == ""
     assert entry.mime_types == ("application/pdf", "text/plain")

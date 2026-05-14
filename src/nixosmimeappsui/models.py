@@ -9,8 +9,14 @@ class DesktopEntry:
     name: str
     exec: str
     icon: str
+    generic_name: str
+    comment: str
+    terminal: bool
+    startup_notify: bool
+    categories: str
     mime_types: tuple[str, ...]
     source_path: str
+    original_text: str
 
 
 @dataclass
@@ -28,5 +34,6 @@ class OverrideRule:
 @dataclass
 class DeclarativeState:
     mime_defaults: dict[str, list[str]] = field(default_factory=dict)
+    mime_added: dict[str, list[str]] = field(default_factory=dict)
     mime_removed: dict[str, list[str]] = field(default_factory=dict)
     desktop_overrides: dict[str, OverrideRule] = field(default_factory=dict)

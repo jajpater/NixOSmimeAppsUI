@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from .models import DeclarativeState, DesktopEntry
 
@@ -14,6 +15,20 @@ def _quoted_list(items: list[str]) -> str:
         return "[ ]"
     rendered = " ".join(f'"{item}"' for item in items)
     return f"[ {rendered} ]"
+
+
+def _escape_multiline_nix(value: str) -> str:
+    return value.replace("''", "'\\''")
+
+
+def _rewrite_mime_type(original_text: str, mime_types: list[str]) -> str:
+    mime_line = f"MimeType={';'.join(mime_types)};"
+    pattern = re.compile(r"^MimeType=.*$", re.MULTILINE)
+    if pattern.search(original_text):
+        return pattern.sub(mime_line, original_text, count=1)
+    if not original_text.endswith("\n"):
+        return original_text + "\n" + mime_line + "\n"
+    return original_text + mime_line + "\n"
 
 
 def render_nix_module(state: DeclarativeState, entries: dict[str, DesktopEntry]) -> str:
@@ -32,10 +47,31 @@ def render_nix_module(state: DeclarativeState, entries: dict[str, DesktopEntry])
     lines.extend([
       "  };",
       "",
+      "  mimeAdded = {",
+    ])
+    for mime_type in sorted(state.mime_added):
+      lines.append(f'    "{mime_type}" = {_quoted_list(state.mime_added[mime_type])};')
+    lines.extend([
+      "  };",
+      "",
       "  mimeRemoved = {",
     ])
     for mime_type in sorted(state.mime_removed):
       lines.append(f'    "{mime_type}" = {_quoted_list(state.mime_removed[mime_type])};')
+    lines.extend([
+      "  };",
+      "",
+      "  desktopMetadata = {",
+    ])
+    for desktop_id in sorted(state.desktop_overrides):
+      entry = entries[desktop_id]
+      rewritten = _rewrite_mime_type(entry.original_text, state.desktop_overrides[desktop_id].allowed_mime_types)
+      lines.append(f'    "{desktop_id}" = \'\'')
+      lines.extend(f"      {line}" for line in _escape_multiline_nix(rewritten).splitlines())
+      if rewritten.endswith("\n"):
+        lines.append("    '';\n")
+      else:
+        lines.append("    '';")
     lines.extend([
       "  };",
       "",
@@ -51,6 +87,7 @@ def render_nix_module(state: DeclarativeState, entries: dict[str, DesktopEntry])
       "  xdg.mimeApps = {",
       "    enable = true;",
       "    defaultApplications = mimeDefaults;",
+      "    associations.added = mimeAdded;",
       "    associations.removed = mimeRemoved;",
       "  };",
       "",
@@ -58,55 +95,14 @@ def render_nix_module(state: DeclarativeState, entries: dict[str, DesktopEntry])
       "",
       "  home.file = builtins.listToAttrs (map",
       "    (desktopId:",
-      "      let",
-      "        original = builtins.getAttr desktopId desktopMetadata;",
-      "        allowedMimeTypes = builtins.getAttr desktopId desktopOverrides;",
-      "        mimeString = builtins.concatStringsSep \";\" allowedMimeTypes;",
-      "      in {",
+      "      {",
       "        name = \".local/share/applications/${desktopId}\";",
-      "        value.text = ''",
-      "          [Desktop Entry]",
-      "          Version=1.0",
-      "          Type=Application",
-      "          Name=${original.name}",
-      "          GenericName=${original.genericName}",
-      "          Comment=${original.comment}",
-      "          Exec=${original.exec}",
-      "          Icon=${original.icon}",
-      "          Terminal=${if original.terminal then \"true\" else \"false\"}",
-      "          Categories=${original.categories}",
-      "          StartupNotify=${if original.startupNotify then \"true\" else \"false\"}",
-      "          MimeType=${mimeString};",
-      "        '';",
+      "        value.text = builtins.getAttr desktopId desktopMetadata;",
       "      })",
       "    (builtins.attrNames desktopOverrides));",
       "}",
       "",
     ])
-    if state.desktop_overrides:
-        insertion_at = lines.index("  desktopOverrides = {")
-        metadata_lines = [
-            "  desktopMetadata = {",
-        ]
-        for desktop_id in sorted(state.desktop_overrides):
-            entry = entries[desktop_id]
-            metadata_lines.extend([
-                f'    "{desktop_id}" = {{',
-                f'      name = "{_escape_nix(entry.name)}";',
-                '      genericName = "";',
-                '      comment = "";',
-                f'      exec = "{_escape_nix(entry.exec)}";',
-                f'      icon = "{_escape_nix(entry.icon)}";',
-                '      terminal = false;',
-                '      categories = "Network;Utility;";',
-                '      startupNotify = true;',
-                "    };",
-            ])
-        metadata_lines.extend([
-            "  };",
-            "",
-        ])
-        lines[insertion_at:insertion_at] = metadata_lines
     return "\n".join(lines)
 
 
