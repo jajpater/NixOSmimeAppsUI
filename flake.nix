@@ -19,7 +19,7 @@
             version = "0.1.0";
             pyproject = true;
             src = ./.;
-            propagatedBuildInputs = with pkgs.python3Packages; [
+            dependencies = with pkgs.python3Packages; [
               textual
             ];
             nativeBuildInputs = with pkgs.python3Packages; [
