@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
       "--port",
       type=int,
-      default=8787,
+      default=8789,
       help="Port for web mode",
     )
     return parser

@@ -21,7 +21,7 @@ class WebUI:
         )
         self.status = "Ready."
 
-    def serve(self, host: str = "127.0.0.1", port: int = 8787) -> None:
+    def serve(self, host: str = "127.0.0.1", port: int = 8789) -> None:
         with make_server(host, port, self.wsgi_app) as httpd:
             print(f"NixOSmimeAppsUI web UI listening on http://{host}:{port}")
             httpd.serve_forever()
